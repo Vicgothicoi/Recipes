@@ -1,214 +1,256 @@
-# 🍽️ 今天吃什么 - AI美食推荐助手
-
-本项目是基于 [Datawhale/all-in-rag](https://github.com/datawhalechina/all-in-rag) 教程的完整实战案例，展示了如何使用图RAG技术构建智能烹饪助手，为您推荐个性化美食和详细烹饪指导。
-
-![界面](./view.png)
-
-## ✨ 特性
-
-- 🤖 **智能推荐**: 基于图RAG + 向量检索的双重AI推荐
-- 🍳 **详细指导**: 分步骤烹饪指南，新手也能轻松上手
-- 💬 **对话交互**: ChatGPT风格的自然语言交互
-- 🎨 **现代界面**: 玻璃质感的响应式设计
-- 📱 **跨平台**: 支持桌面和移动设备访问
-
-## 🚀 快速开始
-
-### 📋 前置要求
-
-✅ **Docker Desktop** - [下载安装](https://www.docker.com/products/docker-desktop/)
-✅ **Node.js 18+** - [下载安装](https://nodejs.org/) (可选，仅开发时需要)
-
-### 🎯 一键启动
-
-**Windows 用户（推荐）:**
-```bash
-# 1. 克隆项目
-git clone https://github.com/FutureUnreal/What-to-eat-today.git
-cd What-to-eat-today
-
-# 2. 双击运行或命令行启动
-start.bat
-```
-
-**Linux/macOS 用户:**
-```bash
-# 1. 克隆项目
-git clone https://github.com/FutureUnreal/What-to-eat-today.git
-cd What-to-eat-today
-
-# 2. 给脚本执行权限并启动
-chmod +x start.sh stop.sh
-./start.sh
-```
-
-### 🌐 访问应用
-
-启动完成后，脚本会自动打开浏览器，或手动访问：
-
-- **🏠 应用首页**: http://localhost
-- **⚛️ 前端**: http://localhost:3000
-- **🐍 后端API**: http://localhost:8000
-- **📊 Neo4j**: http://localhost:7474 (neo4j/all-in-rag)
-- **🗄️ Milvus**: http://localhost:9001 (minioadmin/minioadmin)
-
-## 🛑 停止服务
-
-```bash
-# 停止所有服务
-stop.bat        # Windows
-./stop.sh       # Linux/macOS
-
-# 或者直接使用 Docker Compose
-docker-compose down
-
-# 完全重置（清除所有数据）
-docker-compose down -v
-```
-
-## 📝 常用命令
-
-```bash
-# 查看所有服务状态
-docker-compose ps
-
-# 查看特定服务日志
-docker-compose logs -f backend
-docker-compose logs -f frontend
-
-# 重启特定服务
-docker-compose restart backend
-
-# 完全重置（清除所有数据）
-docker-compose down -v
-```
-
-## 🏗️ 架构说明
-
-### 技术栈
-
-**前端:**
-- Next.js 14 (React框架)
-- Tailwind CSS (样式框架)
-- Zustand (状态管理)
-- Framer Motion (动画)
-
-**后端:**
-- Python 3.11 + Flask
-- Neo4j (图数据库)
-- Milvus (向量数据库)
-- 图RAG + 混合检索
-
-**部署:**
-- Docker + Docker Compose
-- Nginx (反向代理)
-
-### 服务架构
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Nginx (80)    │────│  Frontend(3000) │────│  Backend(8000)  │
-│   反向代理        │    │   Next.js应用    │    │   Flask API     │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                                        │
-                       ┌─────────────────┐    ┌─────────────────┐
-                       │  Neo4j (7474)   │────│ Milvus (19530)  │
-                       │   图数据库        │    │   向量数据库      │
-                       └─────────────────┘    └─────────────────┘
-```
-
-## 🔧 开发模式
-
-如果您需要修改前端代码：
-
-```bash
-# 1. 停止容器化的前端服务
-docker-compose stop frontend
-
-# 2. 本地运行前端开发服务器
-cd frontend
-npm install
-npm run dev
-
-# 3. 访问 http://localhost:3000 进行开发
-```
-
-## 🐛 故障排除
-
-### 问题1：Docker 未运行
-```
-❌ 错误：Docker 未运行
-✅ 解决：启动 Docker Desktop
-```
-
-### 问题2：端口被占用
-```
-❌ 错误：端口 80/3000/8000 被占用
-✅ 解决：关闭占用端口的程序，或修改 docker-compose.yml 中的端口映射
-```
-
-### 问题3：服务启动超时
-```
-❌ 错误：服务启动超时
-✅ 解决：
-1. 检查网络连接
-2. 查看具体服务日志
-3. 重启 Docker Desktop
-4. 清理 Docker 缓存：docker system prune -f
-```
-
-## 💡 使用技巧
-
-1. **首次启动**：需要下载镜像，可能需要5-10分钟
-2. **后续启动**：数据已缓存，通常1-2分钟即可完成
-3. **开发调试**：可以单独重启某个服务而不影响其他服务
-4. **数据持久化**：除非手动清理，否则数据会永久保存
-
-## 🙏 致谢
-
-本项目的开发得益于以下开源项目和教程：
-
-### 📚 教程项目
-- **[Datawhale/all-in-rag](https://github.com/datawhalechina/all-in-rag)** - 大模型应用开发实战：RAG技术全栈指南
-  - 本项目是该教程的完整实战案例，展示了RAG技术的实际应用
-  - 涵盖数据处理、索引构建、检索优化、生成集成等完整技术栈
-  - 通过实际的美食推荐场景，帮助学习者理解图RAG技术的实现细节
-
-### 🍳 菜谱数据
-- **[Anduin2017/HowToCook](https://github.com/Anduin2017/HowToCook)** - 程序员在家做饭方法指南
-  - 本项目的菜谱数据主要来源于这个优秀的开源项目
-  - 该项目用程序员的思维整理了大量实用的菜谱，格式规范、描述清晰
-  - 感谢 [@Anduin2017](https://github.com/Anduin2017) 和所有贡献者们的无私分享
-
-### 🛠️ 技术栈
-- **Next.js** - React 全栈框架
-- **Flask** - Python Web 框架
-- **Neo4j** - 图数据库
-- **Milvus** - 向量数据库
-- **Docker** - 容器化部署
-- **Tailwind CSS** - 样式框架
-
-**🍽️ 享受您的美食推荐之旅！** 如果这个项目对您有帮助，请给个⭐️支持一下！
-
-## 📄 许可证
-
-本项目采用 [MIT License](./LICENSE) 开源协议。
-
-### 🔓 使用权限
-- ✅ **商业使用** - 可以用于商业项目
-- ✅ **修改** - 可以修改源代码
-- ✅ **分发** - 可以分发原始或修改后的代码
-- ✅ **私人使用** - 可以私人使用
-- ✅ **专利使用** - 授予专利使用权
-
-### 📝 使用条件
-- **保留版权声明** - 在所有副本中包含原始版权声明和许可证声明
-- **保留许可证** - 在所有副本中包含 MIT 许可证
-
-### ⚠️ 免责声明
-- 软件按"原样"提供，不提供任何明示或暗示的保证
-- 作者不承担任何责任或义务
+# 今天吃什么 — 基于图 RAG 的智能烹饪助手
 
 ---
 
-Copyright (c) 2025 FutureUnreal. All rights reserved.
+## 目录
+
+- [项目简介](#项目简介)
+- [系统架构](#系统架构)
+- [快速开始](#快速开始)
+- [核心特性](#核心特性)
+- [技术栈](#技术栈)
+- [项目结构](#项目结构)
+- [环境变量](#环境变量)
+- [模块说明](#模块说明)
+- [待办事项](#待办事项)
+
+---
+
+## 项目简介
+
+"今天吃什么"是一个端到端的 RAG（检索增强生成）系统，以中文菜谱知识库为数据源，结合图数据库（Neo4j）与向量数据库（Milvus），为用户提供智能烹饪问答与菜谱推荐服务。
+
+---
+
+## 快速开始
+
+### 前置条件
+
+- Python 3.10+
+- Node.js 18+
+- Docker & Docker Compose
+
+### 1. 启动数据库
+
+```bash
+docker compose up -d
+```
+
+这将启动 Neo4j、Milvus（含 etcd 和 MinIO）并自动导入菜谱图数据。
+
+等待所有容器健康检查通过（约 1 分钟）：
+
+```bash
+docker compose ps
+```
+
+### 2. 配置环境变量
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env`，填入你的 LLM API Key：
+
+```env
+OPENAI_API_KEY=your_api_key_here
+OPENAI_BASE_URL=https://api.siliconflow.cn/v1
+LLM_MODEL=moonshotai/Kimi-K2-Instruct
+```
+
+### 3. 安装 Python 依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. 启动后端
+
+```bash
+python main.py
+```
+
+后端默认监听 `http://localhost:8000`。
+
+### 5. 安装并启动前端
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+前端默认运行在 `http://localhost:3000`。
+
+### 关闭顺序
+
+关闭时按照与启动相反的顺序操作：先停前端，再停后端，最后停数据库容器。
+
+```bash
+docker compose down
+```
+
+---
+
+## 系统架构
+
+```
+用户查询
+   │
+   ▼
+智能查询路由器 (IntelligentQueryRouter)
+   ├── 查询复杂度分析（长度 × 0.1 + 实体数 × 0.4 + 句法信号 × 0.5）
+   ├── 关系密集度检测（图节点一度邻居高价值类型命中）
+   └── BGE 分类头判断是否需要推理
+         │
+   ┌─────┴──────┐
+   ▼            ▼
+传统混合检索   图 RAG 检索
+(BM25 + 向量)  (Neo4j 多跳遍历)
+   │            │
+   └─────┬──────┘
+         ▼
+    RRF 融合 + BGE Cross-Encoder 重排序
+         │
+         ▼
+    LLM 生成回答（流式输出）
+```
+
+---
+
+## 核心特性
+
+### 检索路由
+- 查询复杂度由公式计算，不再完全依赖 LLM 打分，降低延迟与 Token 消耗
+- 关系密集度通过图结构直查（一度邻居高价值节点命中数）衡量，退化方案为与预定义模板句做余弦相似度
+- 使用 BGE + 分类头替代 LLM 判断"是否需要推理"，显著提升可解释性
+- 硬编码路由逻辑，避免 LLM 路由的不确定性
+- 并行执行双引擎检索，充分利用性能优势
+
+### 传统混合检索
+- 双层检索范式：实体级 + 主题级
+- BM25 关键词检索 + 向量语义检索
+- RRF融合，解决 round-robin 无法增加重复文档权重的问题
+- Parent Document Retrieval：通过子文档回溯父文档，提升上下文完整性
+- BGE Cross-Encoder 重排序，过滤低相关度文档
+
+### 图 RAG 检索
+- 支持 5 种查询类型：实体关系查询、聚类查询、路径查找、多跳遍历、子图提取
+- 基于 Neo4j 的知识图谱，包含菜谱、食材、烹饪方式、菜系等节点及其关系
+
+### 会话管理
+- 滑动摘要机制：用查询语义相似度 + 时间衰减打分，取最相关的 3 轮历史对话
+- 检索阶段使用原始 query，生成阶段使用携带历史的增强 query
+
+### 菜谱推荐
+- 由 LLM 完成食材清单与烹饪步骤的准确匹配提取
+- 难度字段直接从菜谱文本中读取
+
+---
+
+## 技术栈
+
+| 层次 | 技术 |
+|------|------|
+| 前端 | Next.js 14、React 18、TypeScript、Tailwind CSS、Framer Motion |
+| 后端 | Python、Flask |
+| 图数据库 | Neo4j 5.11（含 APOC、GDS 插件） |
+| 向量数据库 | Milvus 2.3（etcd + MinIO） |
+| 嵌入模型 | BAAI/bge-small-zh-v1.5（512 维） |
+| 重排序模型 | BAAI/bge-reranker-base |
+| 语言模型 | 兼容 OpenAI 格式的任意供应商（默认 moonshotai/Kimi-K2-Instruct） |
+| NLP | spaCy zh_core_web_sm（依存句法分析） |
+| 检索框架 | LangChain、rank-bm25、sentence-transformers |
+| 容器化 | Docker Compose |
+
+---
+
+## 项目结构
+
+```
+.
+├── main.py                        # 主程序入口
+├── config.py                      # 系统配置
+├── requirements.txt               # Python 依赖
+├── docker-compose.yml             # 数据库容器配置
+├── .env.example                   # 环境变量示例
+├── REVISED.md                     # 改动说明与 TODO
+├── rag_modules/
+│   ├── graph_data_preparation.py  # 数据准备：从 Neo4j 加载菜谱文档
+│   ├── milvus_index_construction.py # 向量索引构建与管理
+│   ├── hybrid_retrieval.py        # 传统混合检索（BM25 + 向量 + RRF + 重排序）
+│   ├── graph_rag_retrieval.py     # 图 RAG 检索（多跳遍历、子图提取等）
+│   ├── intelligent_query_router.py # 智能查询路由器
+│   ├── BGE_classifier.py          # BGE + 分类头（判断是否需要推理）
+│   ├── generation_integration.py  # LLM 生成集成（流式输出）
+│   ├── session_cache_manager.py   # 会话缓存与短期记忆管理
+│   ├── recipe_recommendation.py   # 菜谱推荐
+│   └── web_service_handler.py     # Flask API 路由
+├── data/
+│   ├── cypher/                    # Neo4j 导入脚本及 CSV 数据
+│   └── dishes/                    # 菜谱 Markdown 文件（按类别分类）
+│       ├── aquatic/               # 水产类
+│       ├── breakfast/             # 早餐类
+│       ├── condiment/             # 调料类
+│       ├── dessert/               # 甜点类
+│       └── ...
+└── frontend/                      # Next.js 前端
+    └── src/
+```
+
+---
+
+
+## 环境变量
+
+完整配置项见 [.env.example](./.env.example)。
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `NEO4J_URI` | Neo4j 连接地址 | `bolt://localhost:7687` |
+| `NEO4J_USER` | Neo4j 用户名 | `neo4j` |
+| `NEO4J_PASSWORD` | Neo4j 密码 | `all-in-rag` |
+| `MILVUS_HOST` | Milvus 主机 | `localhost` |
+| `MILVUS_PORT` | Milvus 端口 | `19530` |
+| `EMBEDDING_MODEL` | 嵌入模型名称 | `BAAI/bge-small-zh-v1.5` |
+| `LLM_MODEL` | 语言模型名称 | `moonshotai/Kimi-K2-Instruct` |
+| `OPENAI_API_KEY` | LLM API Key | — |
+| `OPENAI_BASE_URL` | LLM API 地址 | `https://api.siliconflow.cn/v1` |
+
+前端环境变量在 `frontend/.env.local` 中配置：
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+---
+
+## 模块说明
+
+### `IntelligentQueryRouter`
+智能查询路由器，综合以下三个维度决定检索策略：
+- **查询复杂度**：`长度 × 0.1 + 实体数 × 0.4 + 句法结构信号 × 0.5`
+- **关系密集度**：提取实体后查询其一度邻居中高价值节点类型的命中数量
+- **推理需求**：BGE + 分类头模型判断（约需 300 条标注数据训练）
+
+路由结果为三选一：`HYBRID_TRADITIONAL` / `GRAPH_RAG` / `COMBINED`。
+
+### `HybridRetrievalModule`
+传统混合检索，流程为：
+1. LLM 提取实体级 + 主题级关键词
+2. BM25 关键词检索 + Milvus 向量检索
+3. RRF 融合两路结果
+4. 通过 `parent_id` 回溯父文档
+5. BGE Cross-Encoder 重排序并过滤低分文档
+
+### `GraphRAGRetrieval`
+图 RAG 检索，支持 5 种查询类型：
+- `ENTITY_RELATION`：实体关系查询
+- `CLUSTERING`：相似菜谱聚类
+- `PATH_FINDING`：最短路径查找
+- `MULTI_HOP`：多跳路径遍历
+- `SUBGRAPH`：子图提取
+
+### `SessionCacheManager`
+会话缓存管理，使用**滑动摘要**策略：对历史对话按语义相似度 + 时间衰减打分，取得分最高的 3 轮作为短期记忆。
+

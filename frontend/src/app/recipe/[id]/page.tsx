@@ -17,7 +17,7 @@ const RecipeDetailPage: React.FC = () => {
   const params = useParams()
   const router = useRouter()
   const recipeId = params.id as string
-  
+
   const {
     cooking,
     startCooking,
@@ -25,7 +25,7 @@ const RecipeDetailPage: React.FC = () => {
     setCurrentStep,
     addToast
   } = useAppStore()
-  
+
   const {
     currentRecipe,
     isLoading,
@@ -33,29 +33,30 @@ const RecipeDetailPage: React.FC = () => {
     toggleFavorite,
     isFavorited
   } = useRecipes()
-  
+
   const [servings, setServings] = useState(1)
   const [activeTab, setActiveTab] = useState<'ingredients' | 'steps' | 'nutrition'>('ingredients')
-  
+
   useEffect(() => {
     if (recipeId) {
       getRecipeDetails(recipeId)
     }
   }, [recipeId, getRecipeDetails])
-  
+
   useEffect(() => {
     if (currentRecipe) {
       setServings(currentRecipe.servings)
     }
   }, [currentRecipe])
-  
+
   const handleStartCooking = () => {
     if (currentRecipe) {
       startCooking(currentRecipe)
-      router.push(`/cooking/${currentRecipe.id}`)
+      setActiveTab('steps')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }
-  
+
   const handleShare = async () => {
     if (currentRecipe) {
       try {
@@ -76,8 +77,8 @@ const RecipeDetailPage: React.FC = () => {
       }
     }
   }
-  
-  
+
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
@@ -88,7 +89,7 @@ const RecipeDetailPage: React.FC = () => {
       </div>
     )
   }
-  
+
   if (!currentRecipe) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
@@ -103,19 +104,19 @@ const RecipeDetailPage: React.FC = () => {
       </div>
     )
   }
-  
+
   const difficultyColors = {
     easy: 'text-green-600 bg-green-100',
     medium: 'text-yellow-600 bg-yellow-100',
     hard: 'text-red-600 bg-red-100'
   }
-  
+
   const difficultyLabels = {
     easy: '简单',
     medium: '中等',
     hard: '困难'
   }
-  
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       {/* 顶部导航 */}
@@ -130,7 +131,7 @@ const RecipeDetailPage: React.FC = () => {
               <ArrowLeft className="w-4 h-4 mr-2" />
               返回
             </Button>
-            
+
             <div className="flex items-center space-x-2">
               <Button
                 variant="ghost"
@@ -138,18 +139,17 @@ const RecipeDetailPage: React.FC = () => {
                 onClick={() => toggleFavorite(currentRecipe.id)}
               >
                 <Heart
-                  className={`w-4 h-4 mr-2 ${
-                    isFavorited(currentRecipe.id) ? 'text-red-500 fill-current' : ''
-                  }`}
+                  className={`w-4 h-4 mr-2 ${isFavorited(currentRecipe.id) ? 'text-red-500 fill-current' : ''
+                    }`}
                 />
                 {isFavorited(currentRecipe.id) ? '已收藏' : '收藏'}
               </Button>
-              
+
               <Button variant="ghost" size="sm" onClick={handleShare}>
                 <Share2 className="w-4 h-4 mr-2" />
                 分享
               </Button>
-              
+
               <Button
                 variant="primary"
                 onClick={handleStartCooking}
@@ -161,7 +161,7 @@ const RecipeDetailPage: React.FC = () => {
           </div>
         </div>
       </nav>
-      
+
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* 菜谱头部信息 */}
         <motion.section
@@ -188,7 +188,7 @@ const RecipeDetailPage: React.FC = () => {
                 </div>
               </Card>
             </div>
-            
+
             {/* 基本信息 */}
             <div>
               <div className="flex items-center space-x-3 mb-4">
@@ -197,15 +197,15 @@ const RecipeDetailPage: React.FC = () => {
                 </span>
                 <span className="text-sm text-gray-500">{currentRecipe.category}</span>
               </div>
-              
+
               <h1 className="text-3xl font-bold text-gray-900 mb-4">
                 {currentRecipe.name}
               </h1>
-              
+
               <p className="text-gray-600 text-lg mb-6 leading-relaxed">
                 {currentRecipe.description}
               </p>
-              
+
               {/* 统计信息 */}
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <Card variant="glass">
@@ -217,7 +217,7 @@ const RecipeDetailPage: React.FC = () => {
                     </p>
                   </CardContent>
                 </Card>
-                
+
                 <Card variant="glass">
                   <CardContent className="p-4 text-center">
                     <Users className="w-6 h-6 text-green-500 mx-auto mb-2" />
@@ -240,7 +240,7 @@ const RecipeDetailPage: React.FC = () => {
             </div>
           </div>
         </motion.section>
-        
+
         {/* 标签页导航 */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -257,11 +257,10 @@ const RecipeDetailPage: React.FC = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-all duration-200 ${
-                  activeTab === tab.id
+                className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-all duration-200 ${activeTab === tab.id
                     ? 'bg-white shadow-md text-blue-600'
                     : 'text-gray-600 hover:text-gray-900'
-                }`}
+                  }`}
               >
                 <tab.icon className="w-4 h-4" />
                 <span className="font-medium">{tab.label}</span>
@@ -269,7 +268,7 @@ const RecipeDetailPage: React.FC = () => {
             ))}
           </div>
         </motion.div>
-        
+
         {/* 标签页内容 */}
         <motion.div
           key={activeTab}
@@ -286,7 +285,7 @@ const RecipeDetailPage: React.FC = () => {
               showShoppingList
             />
           )}
-          
+
           {activeTab === 'steps' && (
             <CookingSteps
               steps={currentRecipe.steps}
@@ -295,7 +294,7 @@ const RecipeDetailPage: React.FC = () => {
               onStepChange={setCurrentStep}
             />
           )}
-          
+
           {activeTab === 'nutrition' && currentRecipe.nutrition && (
             <Card variant="glass">
               <CardContent className="p-6">
@@ -330,7 +329,7 @@ const RecipeDetailPage: React.FC = () => {
             </Card>
           )}
         </motion.div>
-        
+
         {/* 底部操作区 */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}

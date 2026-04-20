@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 from typing import Dict, Any
 
+
 @dataclass
 class GraphRAGConfig:
     """基于图数据库的RAG系统配置类"""
@@ -25,8 +26,12 @@ class GraphRAGConfig:
     # 模型配置
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
     llm_model: str = os.getenv("LLM_MODEL", "moonshot-v1-8k")
+    rerank_model: str = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-base")
+    rerank_score_threshold: float = float(
+        os.getenv("RERANK_SCORE_THRESHOLD", "0.5")
+    )  # 低于此分数的文档丢弃，至少保留得分最高的1个
 
-    # 检索配置（LightRAG Round-robin策略）
+    # 检索配置（
     top_k: int = 5
 
     # 生成配置
@@ -40,35 +45,36 @@ class GraphRAGConfig:
 
     def __post_init__(self):
         """初始化后的处理"""
-        # LightRAG使用Round-robin策略，无需权重验证
         pass
-    
+
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> 'GraphRAGConfig':
+    def from_dict(cls, config_dict: Dict[str, Any]) -> "GraphRAGConfig":
         """从字典创建配置对象"""
         return cls(**config_dict)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return {
-            'neo4j_uri': self.neo4j_uri,
-            'neo4j_user': self.neo4j_user,
-            'neo4j_password': self.neo4j_password,
-            'neo4j_database': self.neo4j_database,
-            'milvus_host': self.milvus_host,
-            'milvus_port': self.milvus_port,
-            'milvus_collection_name': self.milvus_collection_name,
-            'milvus_dimension': self.milvus_dimension,
-            'embedding_model': self.embedding_model,
-            'llm_model': self.llm_model,
-            'top_k': self.top_k,
-
-            'temperature': self.temperature,
-            'max_tokens': self.max_tokens,
-            'chunk_size': self.chunk_size,
-            'chunk_overlap': self.chunk_overlap,
-            'max_graph_depth': self.max_graph_depth
+            "neo4j_uri": self.neo4j_uri,
+            "neo4j_user": self.neo4j_user,
+            "neo4j_password": self.neo4j_password,
+            "neo4j_database": self.neo4j_database,
+            "milvus_host": self.milvus_host,
+            "milvus_port": self.milvus_port,
+            "milvus_collection_name": self.milvus_collection_name,
+            "milvus_dimension": self.milvus_dimension,
+            "embedding_model": self.embedding_model,
+            "llm_model": self.llm_model,
+            "rerank_model": self.rerank_model,
+            "rerank_score_threshold": self.rerank_score_threshold,
+            "top_k": self.top_k,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "chunk_size": self.chunk_size,
+            "chunk_overlap": self.chunk_overlap,
+            "max_graph_depth": self.max_graph_depth,
         }
 
+
 # 默认配置实例
-DEFAULT_CONFIG = GraphRAGConfig() 
+DEFAULT_CONFIG = GraphRAGConfig()

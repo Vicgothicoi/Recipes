@@ -215,7 +215,7 @@ RETURN count(rel);
 // 基于数据创建分类节点（支持多重分类）
 RETURN 'Creating category nodes from data';
 
-// 处理多重分类：按逗号分割并创建分类节点
+// 1.创建分类节点 + 连接关系
 MATCH (n)
 WHERE n.category IS NOT NULL AND n.category <> ''
 WITH n, split(n.category, ',') as categoryList
@@ -225,18 +225,17 @@ WHERE cleanCategoryName <> ''
 MERGE (cat:Category {name: cleanCategoryName})
 MERGE (n)-[:BELONGS_TO_CATEGORY]->(cat);
 
-// 为每个唯一的conceptType创建概念类型节点
+// 2.创建概念节点 + 连接关系
 MATCH (n)
 WHERE n.conceptType IS NOT NULL AND n.conceptType <> ''
 WITH DISTINCT n.conceptType as conceptTypeName
 MERGE (ct:ConceptType {name: conceptTypeName});
 
-// 连接实体到概念类型
 MATCH (n), (ct:ConceptType)
 WHERE n.conceptType = ct.name
 MERGE (n)-[:HAS_CONCEPT_TYPE]->(ct);
 
-// 创建基于数据的相似性关系（仅基于相同分类）
+// 3.创建相似性关系
 RETURN 'Creating data-driven similarity relationships';
 MATCH (n1), (n2)
 WHERE n1.category = n2.category 
@@ -282,7 +281,7 @@ WHERE synonymsJson IS NOT NULL
 // 目前先创建一个标记，表示该节点有同义词
 SET n.hasSynonyms = true;
 
-// 创建基于时间的步骤序列关系
+// 4.创建步骤序列关系
 RETURN 'Creating step sequence relationships';
 MATCH (r:Recipe)-[:CONTAINS_STEP]->(s1:CookingStep)
 MATCH (r)-[:CONTAINS_STEP]->(s2:CookingStep)
@@ -293,7 +292,7 @@ MERGE (s1)-[:NEXT_STEP {
     timeDifference: s2.stepNumber - s1.stepNumber
 }]->(s2);
 
-// 创建基于工具的关系
+// 5.创建基于工具的关系
 RETURN 'Creating tool-based relationships';
 MATCH (s1:CookingStep), (s2:CookingStep)
 WHERE s1.tools IS NOT NULL AND s2.tools IS NOT NULL
@@ -306,7 +305,7 @@ MERGE (s1)-[:USES_SAME_TOOL {
     similarity: 0.5
 }]->(s2);
 
-// 创建基于烹饪方法的关系
+// 6.创建基于烹饪方法的关系
 RETURN 'Creating method-based relationships';
 MATCH (s1:CookingStep), (s2:CookingStep)
 WHERE s1.methods IS NOT NULL AND s2.methods IS NOT NULL

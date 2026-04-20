@@ -1,8 +1,13 @@
 """
 混合检索模块
 基于双层检索范式：实体级 + 主题级检索
-结合图结构检索和向量检索，使用Round-robin轮询策略
+结合图结构检索和向量检索，使用RRF融合结果
 """
+
+import os
+
+# 必须在 sentence_transformers import 之前设置，阻止联网检查
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 import json
 import logging
@@ -12,31 +17,33 @@ from dataclasses import dataclass
 from langchain_core.documents import Document
 from langchain_community.retrievers import BM25Retriever
 from neo4j import GraphDatabase
-from .graph_indexing import GraphIndexingModule
+from sentence_transformers import CrossEncoder
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class RetrievalResult:
     """检索结果数据结构"""
+
     content: str
     node_id: str
     node_type: str
     relevance_score: float
-    retrieval_level: str  # 'low' or 'high'
+    retrieval_level: str  # 'entity' or 'topic'
     metadata: Dict[str, Any]
+
 
 class HybridRetrievalModule:
     """
     混合检索模块
     核心特点：
     1. 双层检索范式（实体级 + 主题级）
-    2. 关键词提取和匹配
-    3. 图结构+向量检索结合
-    4. 一跳邻居扩展
-    5. Round-robin轮询合并策略
+    2. 向量检索
+    3. RRF融合策略
+    由于丢弃了图索引精确词索引，图数据库召回兜底几乎不可能生效，也一并删除了
     """
-    
+
     def __init__(self, config, milvus_module, data_module, llm_client):
         self.config = config
         self.milvus_module = milvus_module
@@ -44,89 +51,41 @@ class HybridRetrievalModule:
         self.llm_client = llm_client
         self.driver = None
         self.bm25_retriever = None
-        
-        # 图索引模块
-        self.graph_indexing = GraphIndexingModule(config, llm_client)
-        self.graph_indexed = False
-        
+        self.reranker: CrossEncoder = None
+
     def initialize(self, chunks: List[Document]):
         """初始化检索系统"""
         logger.info("初始化混合检索模块...")
-        
+
         # 连接Neo4j
         self.driver = GraphDatabase.driver(
-            self.config.neo4j_uri, 
-            auth=(self.config.neo4j_user, self.config.neo4j_password)
+            self.config.neo4j_uri,
+            auth=(self.config.neo4j_user, self.config.neo4j_password),
         )
-        
+
+        # 构建父文档索引：node_id -> 完整菜谱文档（用于 Parent Document Retrieval）
+        self.parent_doc_map: Dict[str, Document] = {}
+        for doc in self.data_module.documents or []:
+            nid = doc.metadata.get("node_id")
+            if nid:
+                self.parent_doc_map[nid] = doc
+        logger.info(f"父文档索引构建完成，共 {len(self.parent_doc_map)} 个菜谱")
+
         # 初始化BM25检索器
         if chunks:
             self.bm25_retriever = BM25Retriever.from_documents(chunks)
             logger.info(f"BM25检索器初始化完成，文档数量: {len(chunks)}")
-        
-        # 初始化图索引
-        self._build_graph_index()
-        
-    def _build_graph_index(self):
-        """构建图索引"""
-        if self.graph_indexed:
-            return
-            
-        logger.info("开始构建图索引...")
-        
+
+        # 初始化 reranker
         try:
-            # 获取图数据
-            recipes = self.data_module.recipes
-            ingredients = self.data_module.ingredients
-            cooking_steps = self.data_module.cooking_steps
-            
-            # 创建实体键值对
-            self.graph_indexing.create_entity_key_values(recipes, ingredients, cooking_steps)
-            
-            # 创建关系键值对（这里需要从Neo4j获取关系数据）
-            relationships = self._extract_relationships_from_graph()
-            self.graph_indexing.create_relation_key_values(relationships)
-            
-            # 去重优化
-            self.graph_indexing.deduplicate_entities_and_relations()
-            
-            self.graph_indexed = True
-            stats = self.graph_indexing.get_statistics()
-            logger.info(f"图索引构建完成: {stats}")
-            
+            self.reranker = CrossEncoder(self.config.rerank_model)
+            logger.info(f"Reranker初始化完成: {self.config.rerank_model}")
         except Exception as e:
-            logger.error(f"构建图索引失败: {e}")
-            
-    def _extract_relationships_from_graph(self) -> List[Tuple[str, str, str]]:
-        """从Neo4j图中提取关系"""
-        relationships = []
-        
-        try:
-            with self.driver.session() as session:
-                query = """
-                MATCH (source)-[r]->(target)
-                WHERE source.nodeId >= '200000000' OR target.nodeId >= '200000000'
-                RETURN source.nodeId as source_id, type(r) as relation_type, target.nodeId as target_id
-                LIMIT 1000
-                """
-                result = session.run(query)
-                
-                for record in result:
-                    relationships.append((
-                        record["source_id"],
-                        record["relation_type"],
-                        record["target_id"]
-                    ))
-                    
-        except Exception as e:
-            logger.error(f"提取图关系失败: {e}")
-            
-        return relationships
-            
+            logger.warning(f"Reranker初始化失败，将跳过rerank: {e}")
+            self.reranker = None
+
     def extract_query_keywords(self, query: str) -> Tuple[List[str], List[str]]:
-        """
-        提取查询关键词：实体级 + 主题级
-        """
+        """提取查询关键词：实体级 + 主题级"""
         prompt = f"""
         作为烹饪知识助手，请分析以下查询并提取关键词，分为两个层次：
 
@@ -160,307 +119,143 @@ class HybridRetrievalModule:
             "topic_keywords": ["主题1", "主题2", ...]
         }}
         """
-        
+
         try:
             response = self.llm_client.chat.completions.create(
                 model=self.config.llm_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
-                max_tokens=500
+                max_tokens=500,
             )
-            
+
             result = json.loads(response.choices[0].message.content.strip())
             entity_keywords = result.get("entity_keywords", [])
             topic_keywords = result.get("topic_keywords", [])
-            
-            logger.info(f"关键词提取完成 - 实体级: {entity_keywords}, 主题级: {topic_keywords}")
+
+            logger.info(
+                f"关键词提取完成 - 实体级: {entity_keywords}, 主题级: {topic_keywords}"
+            )
             return entity_keywords, topic_keywords
-            
+
         except Exception as e:
             logger.error(f"关键词提取失败: {e}")
-            # 降级方案：简单的关键词分割
             keywords = query.split()
             return keywords[:3], keywords[3:6] if len(keywords) > 3 else keywords
-    
-    def entity_level_retrieval(self, entity_keywords: List[str], top_k: int = 5) -> List[RetrievalResult]:
+
+    def _resolve_parent(self, doc: Document) -> Document:
         """
-        实体级检索：专注于具体实体和关系
-        使用图索引的键值对结构进行检索
+        chunk命中后回溯完整父文档。
         """
+        parent_id = doc.metadata.get("parent_id") or doc.metadata.get("node_id")
+        parent = self.parent_doc_map.get(parent_id) if parent_id else None
+        if parent:
+            # 保留chunk的检索元数据，内容替换为完整父文档
+            merged_metadata = {
+                **parent.metadata,
+                "chunk_id": doc.metadata.get("chunk_id"),
+                "chunk_index": doc.metadata.get("chunk_index"),
+                "retrieved_from_chunk": True,
+            }
+            return Document(page_content=parent.page_content, metadata=merged_metadata)
+        return doc
+
+    def _bm25_search(self, keywords: List[str], top_k: int) -> List[Document]:
+        """用BM25对关键词列表做检索，合并去重后返回top_k文档（自动回溯父文档）"""
+        if not self.bm25_retriever:
+            return []
+
+        seen_ids = set()
+        docs = []
+        for keyword in keywords:
+            self.bm25_retriever.k = top_k
+            results = self.bm25_retriever.invoke(keyword)
+            for doc in results:
+                doc = self._resolve_parent(doc)
+                doc_id = doc.metadata.get("node_id", hash(doc.page_content))
+                if doc_id not in seen_ids:
+                    seen_ids.add(doc_id)
+                    docs.append(doc)
+        return docs[:top_k]
+
+    def entity_level_retrieval(
+        self, entity_keywords: List[str], top_k: int = 5
+    ) -> List[RetrievalResult]:
+        """实体级检索：用BM25匹配具体实体关键词"""
         results = []
-        
-        # 1. 使用图索引进行实体检索
-        for keyword in entity_keywords:
-            # 检索匹配的实体
-            entities = self.graph_indexing.get_entities_by_key(keyword)
-            
-            for entity in entities:
-                # 获取邻居信息
-                neighbors = self._get_node_neighbors(entity.metadata["node_id"], max_neighbors=2)
-                
-                # 构建增强内容
-                enhanced_content = entity.value_content
-                if neighbors:
-                    enhanced_content += f"\n相关信息: {', '.join(neighbors)}"
-                
-                results.append(RetrievalResult(
-                    content=enhanced_content,
-                    node_id=entity.metadata["node_id"],
-                    node_type=entity.entity_type,
-                    relevance_score=0.9,  # 精确匹配得分较高
+
+        bm25_docs = self._bm25_search(entity_keywords, top_k)
+        for doc in bm25_docs:
+            node_id = doc.metadata.get("node_id", hash(doc.page_content))
+            results.append(
+                RetrievalResult(
+                    content=doc.page_content,
+                    node_id=str(node_id),
+                    node_type=doc.metadata.get("node_type", "Recipe"),
+                    relevance_score=0.9,
                     retrieval_level="entity",
                     metadata={
-                        "entity_name": entity.entity_name,
-                        "entity_type": entity.entity_type,
-                        "index_keys": entity.index_keys,
-                        "matched_keyword": keyword
-                    }
-                ))
-        
-        # 2. 如果图索引结果不足，使用Neo4j进行补充检索
-        if len(results) < top_k:
-            neo4j_results = self._neo4j_entity_level_search(entity_keywords, top_k - len(results))
-            results.extend(neo4j_results)
-            
-        # 3. 按相关性排序并返回
+                        **doc.metadata,
+                        "source": "bm25",
+                    },
+                )
+            )
+
         results.sort(key=lambda x: x.relevance_score, reverse=True)
-        
         logger.info(f"实体级检索完成，返回 {len(results)} 个结果")
         return results[:top_k]
-    
-    def _neo4j_entity_level_search(self, keywords: List[str], limit: int) -> List[RetrievalResult]:
-        """Neo4j补充检索"""
+
+    def topic_level_retrieval(
+        self, topic_keywords: List[str], top_k: int = 5
+    ) -> List[RetrievalResult]:
+        """主题级检索：用BM25匹配主题关键词"""
         results = []
-        
-        try:
-            with self.driver.session() as session:
-                cypher_query = """
-                UNWIND $keywords as keyword
-                CALL db.index.fulltext.queryNodes('recipe_fulltext_index', keyword + '*') 
-                YIELD node, score
-                WHERE node:Recipe
-                RETURN 
-                    node.nodeId as node_id,
-                    node.name as name,
-                    node.description as description,
-                    labels(node) as labels,
-                    score
-                ORDER BY score DESC
-                LIMIT $limit
-                """
-                
-                result = session.run(cypher_query, {
-                    "keywords": keywords,
-                    "limit": limit
-                })
-                
-                for record in result:
-                    content_parts = []
-                    if record["name"]:
-                        content_parts.append(f"菜品: {record['name']}")
-                    if record["description"]:
-                        content_parts.append(f"描述: {record['description']}")
-                    
-                    results.append(RetrievalResult(
-                        content='\n'.join(content_parts),
-                        node_id=record["node_id"],
-                        node_type="Recipe",
-                        relevance_score=float(record["score"]) * 0.7,  # 补充检索得分较低
-                        retrieval_level="entity",
-                        metadata={
-                            "name": record["name"],
-                            "labels": record["labels"],
-                            "source": "neo4j_fallback"
-                        }
-                    ))
-                    
-        except Exception as e:
-            logger.error(f"Neo4j补充检索失败: {e}")
-            
-        return results
-    
-    def topic_level_retrieval(self, topic_keywords: List[str], top_k: int = 5) -> List[RetrievalResult]:
-        """
-        主题级检索：专注于广泛主题和概念
-        使用图索引的关系键值对结构进行主题检索
-        """
-        results = []
-        
-        # 1. 使用图索引进行关系/主题检索
-        for keyword in topic_keywords:
-            # 检索匹配的关系
-            relations = self.graph_indexing.get_relations_by_key(keyword)
-            
-            for relation in relations:
-                # 获取相关实体信息
-                source_entity = self.graph_indexing.entity_kv_store.get(relation.source_entity)
-                target_entity = self.graph_indexing.entity_kv_store.get(relation.target_entity)
-                
-                if source_entity and target_entity:
-                    # 构建丰富的主题内容
-                    content_parts = [
-                        f"主题: {keyword}",
-                        relation.value_content,
-                        f"相关菜品: {source_entity.entity_name}",
-                        f"相关信息: {target_entity.entity_name}"
-                    ]
-                    
-                    # 添加源实体的详细信息
-                    if source_entity.entity_type == "Recipe":
-                        newline = '\n'
-                        content_parts.append(f"菜品详情: {source_entity.value_content.split(newline)[0]}")
-                    
-                    results.append(RetrievalResult(
-                        content='\n'.join(content_parts),
-                        node_id=relation.source_entity,  # 以主要实体为ID
-                        node_type=source_entity.entity_type,
-                        relevance_score=0.95,  # 主题匹配得分
-                        retrieval_level="topic",
-                        metadata={
-                            "relation_id": relation.relation_id,
-                            "relation_type": relation.relation_type,
-                            "source_name": source_entity.entity_name,
-                            "target_name": target_entity.entity_name,
-                            "matched_keyword": keyword,
-                            "index_keys": relation.index_keys
-                        }
-                    ))
-        
-        # 2. 使用实体的分类信息进行主题检索
-        for keyword in topic_keywords:
-            entities = self.graph_indexing.get_entities_by_key(keyword)
-            for entity in entities:
-                if entity.entity_type == "Recipe":
-                    # 构建分类主题内容
-                    content_parts = [
-                        f"主题分类: {keyword}",
-                        entity.value_content
-                    ]
-                    
-                    results.append(RetrievalResult(
-                        content='\n'.join(content_parts),
-                        node_id=entity.metadata["node_id"],
-                        node_type=entity.entity_type,
-                        relevance_score=0.85,  # 分类匹配得分
-                        retrieval_level="topic",
-                        metadata={
-                            "entity_name": entity.entity_name,
-                            "entity_type": entity.entity_type,
-                            "matched_keyword": keyword,
-                            "source": "category_match"
-                        }
-                    ))
-        
-        # 3. 如果结果不足，使用Neo4j进行补充检索
-        if len(results) < top_k:
-            neo4j_results = self._neo4j_topic_level_search(topic_keywords, top_k - len(results))
-            results.extend(neo4j_results)
-            
-        # 4. 按相关性排序并返回
+
+        bm25_docs = self._bm25_search(topic_keywords, top_k)
+        for doc in bm25_docs:
+            node_id = doc.metadata.get("node_id", hash(doc.page_content))
+            results.append(
+                RetrievalResult(
+                    content=doc.page_content,
+                    node_id=str(node_id),
+                    node_type=doc.metadata.get("node_type", "Recipe"),
+                    relevance_score=0.85,
+                    retrieval_level="topic",
+                    metadata={
+                        **doc.metadata,
+                        "source": "bm25",
+                    },
+                )
+            )
+
         results.sort(key=lambda x: x.relevance_score, reverse=True)
-        
         logger.info(f"主题级检索完成，返回 {len(results)} 个结果")
         return results[:top_k]
-    
-    def _neo4j_topic_level_search(self, keywords: List[str], limit: int) -> List[RetrievalResult]:
-        """Neo4j主题级检索补充"""
-        results = []
-        
-        try:
-            with self.driver.session() as session:
-                cypher_query = """
-                UNWIND $keywords as keyword
-                MATCH (r:Recipe)
-                WHERE r.category CONTAINS keyword 
-                   OR r.cuisineType CONTAINS keyword
-                   OR r.tags CONTAINS keyword
-                WITH r, keyword
-                OPTIONAL MATCH (r)-[:REQUIRES]->(i:Ingredient)
-                WITH r, keyword, collect(i.name)[0..3] as ingredients
-                RETURN 
-                    r.nodeId as node_id,
-                    r.name as name,
-                    r.category as category,
-                    r.cuisineType as cuisine_type,
-                    r.difficulty as difficulty,
-                    ingredients,
-                    keyword as matched_keyword
-                ORDER BY r.difficulty ASC, r.name
-                LIMIT $limit
-                """
-                
-                result = session.run(cypher_query, {
-                    "keywords": keywords,
-                    "limit": limit
-                })
-                
-                for record in result:
-                    content_parts = []
-                    content_parts.append(f"菜品: {record['name']}")
-                    
-                    if record["category"]:
-                        content_parts.append(f"分类: {record['category']}")
-                    if record["cuisine_type"]:
-                        content_parts.append(f"菜系: {record['cuisine_type']}")
-                    if record["difficulty"]:
-                        content_parts.append(f"难度: {record['difficulty']}")
-                    
-                    if record["ingredients"]:
-                        ingredients_str = ', '.join(record["ingredients"][:3])
-                        content_parts.append(f"主要食材: {ingredients_str}")
-                    
-                    results.append(RetrievalResult(
-                        content='\n'.join(content_parts),
-                        node_id=record["node_id"],
-                        node_type="Recipe",
-                        relevance_score=0.75,  # 补充检索得分
-                        retrieval_level="topic",
-                        metadata={
-                            "name": record["name"],
-                            "category": record["category"],
-                            "cuisine_type": record["cuisine_type"],
-                            "difficulty": record["difficulty"],
-                            "matched_keyword": record["matched_keyword"],
-                            "source": "neo4j_fallback"
-                        }
-                    ))
-                    
-        except Exception as e:
-            logger.error(f"Neo4j主题级检索失败: {e}")
-            
-        return results
-        
+
     def dual_level_retrieval(self, query: str, top_k: int = 5) -> List[Document]:
-        """
-        双层检索：结合实体级和主题级检索
-        """
+        """双层检索：结合实体级和主题级检索"""
         logger.info(f"开始双层检索: {query}")
-        
-        # 1. 提取关键词
+
         entity_keywords, topic_keywords = self.extract_query_keywords(query)
-        
-        # 2. 执行双层检索
+
         entity_results = self.entity_level_retrieval(entity_keywords, top_k)
         topic_results = self.topic_level_retrieval(topic_keywords, top_k)
-        
-        # 3. 结果合并和排序
+
         all_results = entity_results + topic_results
-        
-        # 4. 去重和重排序
+
         seen_nodes = set()
         unique_results = []
-        
-        for result in sorted(all_results, key=lambda x: x.relevance_score, reverse=True):
+        for result in sorted(
+            all_results, key=lambda x: x.relevance_score, reverse=True
+        ):
             if result.node_id not in seen_nodes:
                 seen_nodes.add(result.node_id)
                 unique_results.append(result)
-        
-        # 5. 转换为Document格式
+
         documents = []
         for result in unique_results[:top_k]:
-            # 确保recipe_name字段正确设置
-            recipe_name = result.metadata.get("name") or result.metadata.get("entity_name", "未知菜品")
-            
+            recipe_name = result.metadata.get("recipe_name") or result.metadata.get(
+                "name", "未知菜品"
+            )
             doc = Document(
                 page_content=result.content,
                 metadata={
@@ -468,161 +263,321 @@ class HybridRetrievalModule:
                     "node_type": result.node_type,
                     "retrieval_level": result.retrieval_level,
                     "relevance_score": result.relevance_score,
-                    "recipe_name": recipe_name,  # 确保有recipe_name字段
-                    "search_type": "dual_level",  # 设置搜索类型
-                    **result.metadata
-                }
+                    "recipe_name": recipe_name,
+                    "search_type": "dual_level",
+                    **result.metadata,
+                },
             )
             documents.append(doc)
-            
+
         logger.info(f"双层检索完成，返回 {len(documents)} 个文档")
         return documents
-    
+
     def vector_search_enhanced(self, query: str, top_k: int = 5) -> List[Document]:
-        """
-        增强的向量检索：结合图信息
-        """
+        """向量检索（命中chunk后回溯完整父文档）"""
         try:
-            # 使用Milvus进行向量检索
-            vector_docs = self.milvus_module.similarity_search(query, k=top_k*2)
-            
-            # 用图信息增强结果并转换为Document对象
-            enhanced_docs = []
+            vector_docs = self.milvus_module.similarity_search(query, k=top_k * 2)
+
+            seen_parent_ids = set()
+            docs = []
             for result in vector_docs:
-                # 从Milvus结果创建Document对象
-                content = result.get("text", "")
                 metadata = result.get("metadata", {})
-                node_id = metadata.get("node_id")
-                
-                if node_id:
-                    # 从图中获取邻居信息
-                    neighbors = self._get_node_neighbors(node_id)
-                    if neighbors:
-                        # 将邻居信息添加到内容中
-                        neighbor_info = f"\n相关信息: {', '.join(neighbors[:3])}"
-                        content += neighbor_info
-                
-                # 确保recipe_name字段正确设置
-                recipe_name = metadata.get("recipe_name", "未知菜品")
-                
-                # 调试：打印向量得分
                 vector_score = result.get("score", 0.0)
+                recipe_name = metadata.get("recipe_name", "未知菜品")
                 logger.debug(f"向量检索得分: {recipe_name} = {vector_score}")
-                
-                # 创建Document对象
-                doc = Document(
-                    page_content=content,
-                    metadata={
-                        **metadata,
-                        "recipe_name": recipe_name,  # 确保有recipe_name字段
-                        "score": vector_score,
-                        "search_type": "vector_enhanced"
-                    }
+
+                # 构建临时 chunk doc，用于回溯父文档
+                chunk_doc = Document(
+                    page_content=result.get("text", ""),
+                    metadata=metadata,
                 )
-                enhanced_docs.append(doc)
-                
-            return enhanced_docs[:top_k]
-            
+                parent_doc = self._resolve_parent(chunk_doc)
+                parent_id = parent_doc.metadata.get(
+                    "node_id", hash(parent_doc.page_content)
+                )
+
+                # 父文档去重：同一菜谱只保留得分最高的那次命中
+                if parent_id in seen_parent_ids:
+                    continue
+                seen_parent_ids.add(parent_id)
+
+                docs.append(
+                    Document(
+                        page_content=parent_doc.page_content,
+                        metadata={
+                            **parent_doc.metadata,
+                            "recipe_name": parent_doc.metadata.get(
+                                "recipe_name", recipe_name
+                            ),
+                            "score": vector_score,
+                            "search_type": "vector_enhanced",
+                        },
+                    )
+                )
+
+            return docs[:top_k]
+
         except Exception as e:
-            logger.error(f"增强向量检索失败: {e}")
+            logger.error(f"向量检索失败: {e}")
             return []
-    
-    def _get_node_neighbors(self, node_id: str, max_neighbors: int = 3) -> List[str]:
-        """获取节点的邻居信息"""
+
+    def _rerank(self, query: str, docs: List[Document], top_k: int) -> List[Document]:
+        """用 CrossEncoder 对候选文档精排，过滤低相关性结果"""
+        if not self.reranker or not docs:
+            return docs[:top_k]
+
         try:
-            with self.driver.session() as session:
-                query = """
-                MATCH (n {nodeId: $node_id})-[r]-(neighbor)
-                RETURN neighbor.name as name
-                LIMIT $limit
-                """
-                result = session.run(query, {"node_id": node_id, "limit": max_neighbors})
-                return [record["name"] for record in result if record["name"]]
+            pairs = [[query, doc.page_content] for doc in docs]
+            scores = self.reranker.predict(pairs)
+
+            scored = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
+
+            result = []
+            for score, doc in scored:
+                if score < self.config.rerank_score_threshold:
+                    break
+                doc.metadata["rerank_score"] = float(score)
+                result.append(doc)
+
+            # 过滤后为空时，至少保留得分最高的1个
+            if not result and scored:
+                top_score, top_doc = scored[0]
+                top_doc.metadata["rerank_score"] = float(top_score)
+                result = [top_doc]
+
+            result = result[:top_k]
+            logger.info(
+                f"Rerank完成：{len(docs)} -> {len(result)} 个文档"
+                f"（阈值={self.config.rerank_score_threshold}）"
+            )
+            return result
         except Exception as e:
-            logger.error(f"获取邻居节点失败: {e}")
-            return []
-    
-    def hybrid_search(self, query: str, top_k: int = 5) -> List[Document]:
-        """
-        混合检索：并行执行多种检索策略
-        """
+            logger.error(f"Rerank失败，降级返回RRF结果: {e}")
+            return docs[:top_k]
+
+    def hybrid_search(
+        self, query: str, top_k: int = 5, rrf_k: int = 60
+    ) -> List[Document]:
+        """混合检索：并行执行双层检索和向量检索，RRF合并"""
         import concurrent.futures
 
         logger.info(f"开始并行混合检索: {query}")
 
-        # 🚀 并行执行不同检索策略
         dual_docs = []
         vector_docs = []
 
         def dual_search():
             nonlocal dual_docs
             try:
-                dual_docs = self.dual_level_retrieval(query, top_k)
+                dual_docs = self.dual_level_retrieval(query, top_k * 2)
                 logger.info(f"双层检索完成: {len(dual_docs)} 个结果")
             except Exception as e:
                 logger.error(f"双层检索失败: {e}")
-                dual_docs = []
 
         def vector_search():
             nonlocal vector_docs
             try:
-                vector_docs = self.vector_search_enhanced(query, top_k)
+                vector_docs = self.vector_search_enhanced(query, top_k * 2)
                 logger.info(f"向量检索完成: {len(vector_docs)} 个结果")
             except Exception as e:
                 logger.error(f"向量检索失败: {e}")
-                vector_docs = []
 
-        # 使用线程池并行执行
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             future_dual = executor.submit(dual_search)
             future_vector = executor.submit(vector_search)
-
-            # 等待检索完成
             concurrent.futures.wait([future_dual, future_vector], timeout=20)
 
-        # 3. Round-robin轮询合并
-        merged_docs = []
-        seen_doc_ids = set()
-        max_len = max(len(dual_docs), len(vector_docs))
-        origin_len = len(dual_docs) + len(vector_docs)
-        
-        for i in range(max_len):
-            # 先添加双层检索结果
-            if i < len(dual_docs):
-                doc = dual_docs[i]
-                doc_id = doc.metadata.get("node_id", hash(doc.page_content))
-                if doc_id not in seen_doc_ids:
-                    seen_doc_ids.add(doc_id)
-                    doc.metadata["search_method"] = "dual_level"
-                    doc.metadata["round_robin_order"] = len(merged_docs)
-                    # 设置统一的final_score字段
-                    doc.metadata["final_score"] = doc.metadata.get("relevance_score", 0.0)
-                    merged_docs.append(doc)
-            
-            # 再添加向量检索结果
-            if i < len(vector_docs):
-                doc = vector_docs[i]
-                doc_id = doc.metadata.get("node_id", hash(doc.page_content))
-                if doc_id not in seen_doc_ids:
-                    seen_doc_ids.add(doc_id)
-                    doc.metadata["search_method"] = "vector_enhanced"
-                    doc.metadata["round_robin_order"] = len(merged_docs)
-                    # 设置统一的final_score字段（向量得分需要转换）
-                    vector_score = doc.metadata.get("score", 0.0)
-                    # COSINE距离转换为相似度：distance越小，相似度越高
-                    similarity_score = max(0.0, 1.0 - vector_score) if vector_score <= 1.0 else 0.0
-                    doc.metadata["final_score"] = similarity_score
-                    merged_docs.append(doc)
-        
-        # 取前top_k个结果
-        final_docs = merged_docs[:top_k]
-        
-        logger.info(f"Round-robin合并：从总共{origin_len}个结果合并为{len(final_docs)}个文档")
-        logger.info(f"混合检索完成，返回 {len(final_docs)} 个文档")
+        # RRF合并：score = sum(1 / (rrf_k + rank)) across retrievers
+        rrf_scores: dict = {}
+        doc_map: dict = {}
+
+        for rank, doc in enumerate(dual_docs):
+            doc_id = doc.metadata.get("node_id", hash(doc.page_content))
+            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + 1.0 / (rrf_k + rank + 1)
+            if doc_id not in doc_map:
+                doc.metadata["search_method"] = "dual_level"
+                doc_map[doc_id] = doc
+
+        for rank, doc in enumerate(vector_docs):
+            doc_id = doc.metadata.get("node_id", hash(doc.page_content))
+            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + 1.0 / (rrf_k + rank + 1)
+            if doc_id not in doc_map:
+                doc.metadata["search_method"] = "vector_enhanced"
+                doc_map[doc_id] = doc
+            else:
+                # 文档同时出现在两路，标记来源
+                doc_map[doc_id].metadata["search_method"] = "both"
+
+        sorted_ids = sorted(rrf_scores, key=lambda x: rrf_scores[x], reverse=True)
+        final_docs = []
+        for doc_id in sorted_ids[: top_k * 2]:  # 扩大候选集，rerank后再截断
+            doc = doc_map[doc_id]
+            doc.metadata["final_score"] = rrf_scores[doc_id]
+            final_docs.append(doc)
+
+        logger.info(
+            f"RRF合并：从总共{len(dual_docs) + len(vector_docs)}个结果合并为{len(final_docs)}个文档"
+        )
+
+        # RRF 之后做精排和过滤
+        final_docs = self._rerank(query, final_docs, top_k)
+
         return final_docs
-        
+
     def close(self):
         """关闭资源连接"""
         if self.driver:
             self.driver.close()
-            logger.info("Neo4j连接已关闭") 
+            logger.info("Neo4j连接已关闭")
+
+
+if __name__ == "__main__":
+    import ast
+    import json
+    import os
+    import sys
+    import time
+
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    # logging.basicConfig(
+    #     level=logging.INFO,
+    #     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    # )
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from config import DEFAULT_CONFIG
+    from rag_modules.graph_data_preparation import GraphDataPreparationModule
+    from rag_modules.milvus_index_construction import MilvusIndexConstructionModule
+    from rag_modules.generation_integration import GenerationIntegrationModule
+
+    # ── 初始化系统 ──────────────────────────────────────────────
+    config = DEFAULT_CONFIG
+
+    print("初始化数据准备模块...")
+    data_module = GraphDataPreparationModule(
+        uri=config.neo4j_uri,
+        user=config.neo4j_user,
+        password=config.neo4j_password,
+        database=config.neo4j_database,
+    )
+
+    print("初始化Milvus向量索引...")
+    index_module = MilvusIndexConstructionModule(
+        host=config.milvus_host,
+        port=config.milvus_port,
+        collection_name=config.milvus_collection_name,
+        dimension=config.milvus_dimension,
+        model_name=config.embedding_model,
+    )
+
+    print("初始化生成模块...")
+    generation_module = GenerationIntegrationModule(
+        model_name=config.llm_model,
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
+    )
+
+    # 加载数据
+    data_module.load_graph_data()
+    data_module.build_recipe_documents()
+    chunks = data_module.chunk_documents(
+        chunk_size=config.chunk_size,
+        chunk_overlap=config.chunk_overlap,
+    )
+
+    # 加载向量索引
+    if index_module.has_collection():
+        index_module.load_collection()
+    else:
+        index_module.build_vector_index(chunks)
+
+    # 初始化检索模块
+    retrieval = HybridRetrievalModule(
+        config=config,
+        milvus_module=index_module,
+        data_module=data_module,
+        llm_client=generation_module.client,
+    )
+    retrieval.initialize(chunks)
+
+    # ── 评测函数 ──────────────────────────────────────────────
+    def evaluate_query(query: str, relevant_names: list[str], top_k: int = 5) -> dict:
+
+        t0 = time.time()
+        docs = retrieval.hybrid_search(query, top_k=top_k)
+        latency = time.time() - t0
+
+        # 取检索结果中的 recipe_name 字段
+        retrieved_names = set()
+        for doc in docs:
+            name = doc.metadata.get("recipe_name") or doc.metadata.get("name", "")
+            if name:
+                retrieved_names.add(name)
+
+        relevant_set = set(relevant_names)
+        hits = retrieved_names & relevant_set
+
+        precision = len(hits) / len(retrieved_names) if retrieved_names else 0.0
+        recall = len(hits) / len(relevant_set) if relevant_set else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
+
+        return {
+            "query": query,
+            "relevant": relevant_names,
+            "retrieved": list(retrieved_names),
+            "hits": list(hits),
+            "precision": round(precision, 4),
+            "recall": round(recall, 4),
+            "score": round(f1, 4),
+            "latency_s": round(latency, 3),
+        }
+
+    # ── 读取评测集并运行 ──────────────────────────────────────
+    eval_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "data",
+        "query",
+        "relevant.txt",
+    )
+
+    eval_set = []
+    with open(eval_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line == "END":
+                break
+            if not line:
+                continue
+            row = json.loads(line)  # 每行是 JSON 数组
+            query_text = row[0]
+            relevant_docs = row[1:]
+            eval_set.append((query_text, relevant_docs))
+
+    top_k = 5
+
+    print(f"\n{'='*60}")
+    print(f"评测开始  top_k={top_k}  共 {len(eval_set)} 条查询")
+    print(f"{'='*60}")
+
+    all_scores = []
+    for query_text, relevant_docs in eval_set:
+        result = evaluate_query(query_text, relevant_docs, top_k=top_k)
+        all_scores.append(result["score"])
+        print(
+            f"[{result['score']:.4f}]  P={result['precision']:.4f}  "
+            f"R={result['recall']:.4f}  {result['latency_s']:.2f}s  "
+            f"Q: {query_text[:30]}"
+        )
+
+    avg_score = sum(all_scores) / len(all_scores) if all_scores else 0.0
+    print(f"\n{'='*60}")
+    print(f"平均得分 (0.5×P + 0.5×R): {avg_score:.4f}")
+    print(f"{'='*60}\n")
