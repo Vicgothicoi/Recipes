@@ -145,10 +145,27 @@ class GraphRAGRetrieval:
         理解查询的图结构意图
         这是图RAG的核心：从自然语言到图查询的转换
         """
+        # 优先使用已缓存的关系类型，否则使用图谱中已知的关系类型
+        known_relation_types = list(self.relation_cache.keys()) or [
+            "REQUIRES",
+            "CONTAINS_STEP",
+            "BELONGS_TO",
+            "BELONGS_TO_CATEGORY",
+            "SIMILAR",
+            "NEXT_STEP",
+            "USES_SAME_TOOL",
+            "USES_SAME_METHOD",
+            "HAS_DIFFICULTY_LEVEL",
+            "HAS_CONCEPT_TYPE",
+        ]
+
         prompt = f"""
         作为图数据库专家，分析以下查询的图结构意图：
         
         查询：{query}
+        
+        图数据库中实际存在的关系类型（只能从这里选择）：
+        {known_relation_types}
         
         请识别：
         1. 查询类型：
@@ -160,7 +177,7 @@ class GraphRAGRetrieval:
         
         2. 核心实体：查询中的关键实体名称
         3. 目标实体：期望找到的实体类型
-        4. 关系类型：涉及的关系类型
+        4. 关系类型：从上方列表中选择涉及的关系类型
         5. 遍历深度：需要的图遍历深度（1-3跳）
         
         示例：
@@ -882,3 +899,51 @@ class GraphRAGRetrieval:
         if hasattr(self, "driver") and self.driver:
             self.driver.close()
             logger.info("图RAG检索系统已关闭")
+
+
+if __name__ == "__main__":
+    import os
+    import sys
+
+    # 加载 .env（项目根目录）
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+    except ImportError:
+        pass
+
+    import logging
+
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s | %(message)s")
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from config import GraphRAGConfig
+    from openai import OpenAI
+
+    config = GraphRAGConfig()
+    llm_client = OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+    )
+
+    retrieval = GraphRAGRetrieval(config=config, llm_client=llm_client)
+
+    # ── 测试用例 ──────────────────────────────────────────────────────
+    test_queries = [
+        "鸡肉和胡萝卜能一起做菜吗？",
+    ]
+
+    print("=" * 60)
+    print("understand_graph_query 测试")
+    print("=" * 60)
+
+    for query in test_queries:
+        print(f"\n查询：{query}")
+        graph_query = retrieval.understand_graph_query(query)
+        print(graph_query)
+        # print(f"  查询类型    : {graph_query.query_type.value}")
+        # print(f"  源实体      : {graph_query.source_entities}")
+        # print(f"  目标实体    : {graph_query.target_entities}")
+        # print(f"  关系类型    : {graph_query.relation_types}")
+        # print(f"  遍历深度    : {graph_query.max_depth}")

@@ -39,7 +39,7 @@ class SessionCacheManager:
         self.context_embeddings: Dict[str, Dict[str, np.ndarray]] = {}
 
         # 缓存配置
-        self.cache_threshold = 0.75  # 语义相似度阈值
+        self.cache_threshold = 0.90  # 语义相似度阈值
         self.max_session_cache_size = 50  # 每个会话最大缓存条目数
         self.max_context_length = 10  # 每个会话保留的最大上下文消息数
         self.context_top_k = 3  # get_context_for_query 最多选取的轮数

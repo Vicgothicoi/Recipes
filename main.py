@@ -290,7 +290,7 @@ class AdvancedGraphRAGSystem:
             )
             print(f"{strategy_icon} 使用策略: {analysis.recommended_strategy.value}")
             print(
-                f"📊 复杂度: {analysis.query_complexity:.2f}, 关系密集度: {analysis.relationship_intensity:.2f}"
+                f"📊 查询复杂度: {analysis.query_complexity:.2f}, 关系密集度: {analysis.relationship_intensity:.2f}"
             )
 
             # 3. 显示检索结果信息
