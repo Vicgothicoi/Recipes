@@ -519,6 +519,7 @@ if __name__ == "__main__":
                 retrieved_names.add(name)
 
         relevant_set = set(relevant_names)
+        # print(retrieved_names)
         hits = retrieved_names & relevant_set
 
         precision = len(hits) / len(retrieved_names) if retrieved_names else 0.0
@@ -579,5 +580,5 @@ if __name__ == "__main__":
 
     avg_score = sum(all_scores) / len(all_scores) if all_scores else 0.0
     print(f"\n{'='*60}")
-    print(f"平均得分 (0.5×P + 0.5×R): {avg_score:.4f}")
+    print(f"F1分数: {avg_score:.4f}")
     print(f"{'='*60}\n")
