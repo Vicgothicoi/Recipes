@@ -322,3 +322,6 @@ profile_*
 # 监控和度量
 metrics/
 monitoring/
+
+# 文档
+REVISED.md

@@ -1,0 +1,2 @@
+{"text": "咖喱块 115g", "entities": [{"start": 0, "end": 3, "label": "Ingredient"}], "metadata": {"section": "calculation", "weak": false}}
+{"text": "土豆去皮、切成不超过 4cm 的大块，备用", "entities": [{"start": 0, "end": 18, "label": "CookingStep"}], "metadata": {"section": "steps"}}

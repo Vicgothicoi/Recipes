@@ -1,0 +1,2 @@
+{"text": "咖喱块 115g", "head": {"text": "咖喱炒蟹", "label": "Recipe"}, "tail": {"text": "咖喱块", "label": "Ingredient"}, "relation": "801000001", "metadata": {"properties": {"amount": "115", "unit": "g"}}}
+{"text": "土豆去皮、切成不超过 4cm 的大块，备用", "head": {"text": "水煮玉米", "label": "Recipe"}, "tail": {"text": "土豆去皮、切成不超过 4cm 的大块，备用", "label": "CookingStep"}, "relation": "801000003", "metadata": {"properties": {"step_order": 1.0}}}
