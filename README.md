@@ -18,7 +18,7 @@
 
 ## 项目简介
 
-"今天吃什么"是一个端到端的 RAG（检索增强生成）系统，以中文菜谱知识库为数据源，结合图数据库（Neo4j）与向量数据库（Milvus），为用户提供智能烹饪问答与菜谱推荐服务。
+"今天吃什么"是一个端到端的 RAG（检索增强生成）系统，以中文菜谱知识库为数据源，结合图数据库（Neo4j）与向量数据库（ChromaDB），为用户提供智能烹饪问答与菜谱推荐服务。
 
 ---
 
@@ -36,7 +36,7 @@
 docker compose up -d
 ```
 
-这将启动 Neo4j、Milvus（含 etcd 和 MinIO）并自动导入菜谱图数据。
+这将启动 Neo4j 并自动导入菜谱图数据。
 
 等待所有容器健康检查通过（约 1 分钟）：
 
@@ -50,12 +50,11 @@ docker compose ps
 cp .env.example .env
 ```
 
-编辑 `.env`，填入你的 LLM API Key：
+编辑 `.env`，填入你的 LLM API Key 和 Embedding API key：
 
 ```env
 OPENAI_API_KEY=your_api_key_here
-OPENAI_BASE_URL=https://api.deepseek.com
-LLM_MODEL=deepseek-chat
+DASHSCOPE_API_KEY=your_api_key_here
 ```
 
 ### 3. 安装 Python 依赖
@@ -81,14 +80,6 @@ npm run dev
 ```
 
 前端默认运行在 `http://localhost:3000`。
-
-### 关闭顺序
-
-关闭时按照与启动相反的顺序操作：先停前端，再停后端，最后停数据库容器。
-
-```bash
-docker compose down
-```
 
 ---
 
@@ -155,10 +146,10 @@ docker compose down
 | 前端 | Next.js 14、React 18、TypeScript、Tailwind CSS、Framer Motion |
 | 后端 | Python、Flask |
 | 图数据库 | Neo4j 5.11（含 APOC、GDS 插件） |
-| 向量数据库 | Milvus 2.3（etcd + MinIO） |
+| 向量数据库 | ChromaDB 2.1.7 |
 | 嵌入模型 | BAAI/bge-small-zh-v1.5（512 维） |
 | 重排序模型 | BAAI/bge-reranker-base |
-| 语言模型 | 兼容 OpenAI 格式的任意供应商（默认 moonshotai/Kimi-K2-Instruct） |
+| 语言模型 | 兼容 OpenAI 格式的任意供应商 |
 | NLP | spaCy zh_core_web_sm（依存句法分析） |
 | 检索框架 | LangChain、rank-bm25、sentence-transformers |
 | 容器化 | Docker Compose |
@@ -209,9 +200,7 @@ docker compose down
 |------|------|--------|
 | `NEO4J_URI` | Neo4j 连接地址 | `bolt://localhost:7687` |
 | `NEO4J_USER` | Neo4j 用户名 | `neo4j` |
-| `NEO4J_PASSWORD` | Neo4j 密码 | `all-in-rag` |
-| `MILVUS_HOST` | Milvus 主机 | `localhost` |
-| `MILVUS_PORT` | Milvus 端口 | `19530` |
+| `NEO4J_PASSWORD` | Neo4j 密码 | `all-in-rag` |`
 | `EMBEDDING_MODEL` | 嵌入模型名称 | `BAAI/bge-small-zh-v1.5` |
 | `LLM_MODEL` | 语言模型名称 | `moonshotai/Kimi-K2-Instruct` |
 | `OPENAI_API_KEY` | LLM API Key | — |
