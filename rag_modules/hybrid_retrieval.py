@@ -465,13 +465,16 @@ if __name__ == "__main__":
         database=config.neo4j_database,
     )
 
-    print("初始化Milvus向量索引...")
+    print("初始化向量索引...")
     index_module = MilvusIndexConstructionModule(
         host=config.milvus_host,
         port=config.milvus_port,
         collection_name=config.milvus_collection_name,
         dimension=config.milvus_dimension,
         model_name=config.embedding_model,
+        api_key=config.embedding_api_key,
+        base_url=config.embedding_base_url,
+        persist_directory=config.chroma_persist_dir,
     )
 
     print("初始化生成模块...")

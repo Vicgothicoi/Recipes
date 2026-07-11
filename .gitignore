@@ -297,6 +297,9 @@ $RECYCLE.BIN/
 # Milvus 数据
 # data/milvus/
 
+# ChromaDB 本地持久化目录
+chroma_db/
+
 # 用户生成的内容
 user_uploads/
 user_data/
@@ -323,5 +326,6 @@ profile_*
 metrics/
 monitoring/
 
-# 文档
+# 其他文件
 REVISED.md
+data_handler/

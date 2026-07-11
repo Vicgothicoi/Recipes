@@ -54,8 +54,8 @@ cp .env.example .env
 
 ```env
 OPENAI_API_KEY=your_api_key_here
-OPENAI_BASE_URL=https://api.siliconflow.cn/v1
-LLM_MODEL=moonshotai/Kimi-K2-Instruct
+OPENAI_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-chat
 ```
 
 ### 3. 安装 Python 依赖

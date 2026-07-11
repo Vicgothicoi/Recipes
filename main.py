@@ -87,14 +87,17 @@ class AdvancedGraphRAGSystem:
                 database=self.config.neo4j_database,
             )
 
-            # 2. 向量索引模块
-            print("初始化Milvus向量索引...")
+            # 2. 向量索引模块（ChromaDB 本地持久化）
+            print("初始化向量索引...")
             self.index_module = MilvusIndexConstructionModule(
                 host=self.config.milvus_host,
                 port=self.config.milvus_port,
                 collection_name=self.config.milvus_collection_name,
                 dimension=self.config.milvus_dimension,
                 model_name=self.config.embedding_model,
+                api_key=self.config.embedding_api_key,
+                base_url=self.config.embedding_base_url,
+                persist_directory=self.config.chroma_persist_dir,
             )
 
             # 3. 生成模块
@@ -352,9 +355,8 @@ class AdvancedGraphRAGSystem:
     def _get_query_embedding(self, query: str):
         """获取查询的向量表示（用于语义缓存）"""
         try:
-            if hasattr(self.index_module, "embedding_model"):
-                # 使用现有的embedding模型
-                return self.index_module.embedding_model.embed_documents([query])[0]
+            if self.index_module.embeddings:
+                return self.index_module.embeddings.embed_documents([query])[0]
             return None
         except Exception as e:
             logger.warning(f"获取查询向量失败: {e}")

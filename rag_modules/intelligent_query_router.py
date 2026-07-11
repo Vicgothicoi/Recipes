@@ -63,7 +63,8 @@ class IntelligentQueryRouter:
 
         # 懒加载：spaCy NLP 管道（依存句法分析）
         self._nlp = None
-        # 懒加载：sentence-transformers 编码器（bge-small-zh-v1.5）
+        # 句向量编码器已停用：向量检索改用在线 Embedding API，
+        # 此处不再加载本地 SentenceTransformer，隐含关系检测走降级逻辑
         self._sent_encoder = None
         # 懒加载：图节点实体词典
         self._entity_dict: Optional[set] = None
@@ -207,19 +208,12 @@ class IntelligentQueryRouter:
         return self._nlp if self._nlp else None
 
     def _get_sent_encoder(self):
-        if self._sent_encoder is None:
-            try:
-                from sentence_transformers import SentenceTransformer
+        """
+        句向量编码器已停用（向量检索改用在线 Embedding API，不再依赖本地模型）。
 
-                model_name = getattr(
-                    self.config, "embedding_model", "BAAI/bge-small-zh-v1.5"
-                )
-                self._sent_encoder = SentenceTransformer(model_name)
-                logger.info(f"SentenceTransformer ({model_name}) 加载成功")
-            except Exception as e:
-                logger.warning(f"SentenceTransformer 加载失败，隐含关系检测将降级: {e}")
-                self._sent_encoder = False
-        return self._sent_encoder if self._sent_encoder else None
+        返回 None 表示不可用，调用方（模板句相似度、隐含关系检测）会自动降级。
+        """
+        return None
 
     def _get_template_embeddings(
         self, templates: List[str], cache_attr: str
@@ -325,7 +319,8 @@ class IntelligentQueryRouter:
             )
             return result
 
-        return min(kw_score, 0.5)
+        # spaCy 不可用时，无法做依存句法分析，句法复杂度信号取中性默认值
+        return 0.3
 
     def _compute_query_complexity(self, query: str) -> float:
 

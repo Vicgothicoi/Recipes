@@ -17,14 +17,24 @@ class GraphRAGConfig:
     neo4j_password: str = os.getenv("NEO4J_PASSWORD", "all-in-rag")
     neo4j_database: str = os.getenv("NEO4J_DATABASE", "neo4j")
 
-    # Milvus配置
+    # 向量数据库配置（ChromaDB 本地持久化）
+    # 说明：host/port 为兼容旧接口保留，ChromaDB 本地模式下不使用
     milvus_host: str = os.getenv("MILVUS_HOST", "localhost")
     milvus_port: int = int(os.getenv("MILVUS_PORT", "19530"))
-    milvus_collection_name: str = "cooking_knowledge"
-    milvus_dimension: int = 512  # BGE-small-zh-v1.5的向量维度
+    milvus_collection_name: str = os.getenv(
+        "CHROMA_COLLECTION_NAME",
+        os.getenv("MILVUS_COLLECTION_NAME", "cooking_knowledge"),
+    )
+    milvus_dimension: int = int(os.getenv("EMBEDDING_DIMENSIONS", "1024"))
+    chroma_persist_dir: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
 
     # 模型配置
-    embedding_model: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
+    embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-v4")
+    embedding_api_key: str = os.getenv("DASHSCOPE_API_KEY", "")
+    embedding_base_url: str = os.getenv(
+        "EMBEDDING_BASE_URL",
+        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    )
     llm_model: str = os.getenv("LLM_MODEL", "moonshot-v1-8k")
     rerank_model: str = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-base")
     rerank_score_threshold: float = float(
@@ -63,7 +73,9 @@ class GraphRAGConfig:
             "milvus_port": self.milvus_port,
             "milvus_collection_name": self.milvus_collection_name,
             "milvus_dimension": self.milvus_dimension,
+            "chroma_persist_dir": self.chroma_persist_dir,
             "embedding_model": self.embedding_model,
+            "embedding_base_url": self.embedding_base_url,
             "llm_model": self.llm_model,
             "rerank_model": self.rerank_model,
             "rerank_score_threshold": self.rerank_score_threshold,
