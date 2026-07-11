@@ -154,7 +154,7 @@ class RecipeRecommendationManager:
                     # 使用正确的GitHub LFS媒体URL
                     github_base = "https://media.githubusercontent.com/media/FutureUnreal/HowToCook/master/"
                     full_url = github_base + github_path
-                    logger.info(f"转换后的GitHub图片URL: {full_url}")
+                    # logger.info(f"转换后的GitHub图片URL: {full_url}")
                     return full_url
 
             return image_url if image_url.startswith("http") else None
