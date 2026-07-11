@@ -376,16 +376,16 @@ class AdvancedGraphRAGSystem:
                 return
 
             print("🚀 启动Web服务...")
-            print(f"📊 健康检查: http://localhost:8000/health")
-            print(f"💬 聊天API: http://localhost:8000/api/chat")
-            print(f"🌊 流式聊天: http://localhost:8000/api/chat/stream")
-            print(f"🍽️ 菜谱推荐: http://localhost:8000/api/recipes/recommendations")
-            print(f"📖 菜谱详情: http://localhost:8000/api/recipes/<recipe_id>")
-            print(f"📈 统计信息: http://localhost:8000/api/stats")
+            print(f"📊 健康检查: http://localhost:8001/health")
+            print(f"💬 聊天API: http://localhost:8001/api/chat")
+            print(f"🌊 流式聊天: http://localhost:8001/api/chat/stream")
+            print(f"🍽️ 菜谱推荐: http://localhost:8001/api/recipes/recommendations")
+            print(f"📖 菜谱详情: http://localhost:8001/api/recipes/<recipe_id>")
+            print(f"📈 统计信息: http://localhost:8001/api/stats")
             print("=" * 50)
 
             # 启动Flask应用
-            app.run(host="0.0.0.0", port=8000, debug=False)
+            app.run(host="0.0.0.0", port=8001, debug=False)
 
         except Exception as e:
             logger.error(f"Web服务启动失败: {e}")
